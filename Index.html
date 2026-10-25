@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Flappy Snake</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
+    body { background: #0f172a; color: #fff; font-family: sans-serif; overflow: hidden; touch-action: manipulation; }
+    #game-container { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
+    canvas { background: #1e293b; width: 100%; height: 100%; max-width: 480px; max-height: 800px; display: block; }
+    .ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: none; }
+    .btn { pointer-events: auto; background: #22c55e; color: #fff; border: none; padding: 15px 32px; font-size: 1.2rem; font-weight: bold; border-radius: 12px; cursor: pointer; box-shadow: 0 4px 15px rgba(34, 197, 94, 0.4); }
+    .btn:active { transform: scale(0.95); }
+    .score-board { position: absolute; top: 20px; font-size: 1.8rem; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.5); z-index: 10; }
+    #overlay { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; }
+  </style>
+</head>
+<body>
+  <div id="game-container">
+    <div class="score-board" id="score">0</div>
+    <canvas id="canvas"></canvas>
+    <div class="ui-layer" id="ui">
+      <div id="overlay">
+        <h1 style="font-size: 2.5rem; color: #4ade80;">Flappy Snake</h1>
+        <p style="text-align: center; color: #94a3b8; padding: 0 20px;">
+          Tippe auf den Bildschirm, um zu hüpfen.<br>
+          Weiche den Rohren aus und friss das Obst!
+        </p>
+        <button class="btn" id="start-btn">SPIELEN</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const uiEl = document.getElementById('ui');
+    const startBtn = document.getElementById('start-btn');
+
+    let width, height;
+    function resize() {
+      width = canvas.width = canvas.clientWidth;
+      height = canvas.height = canvas.clientHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Sound-Synthesizer
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playSound(type) {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      if (type === 'flap') {
+        osc.frequency.setValueAtTime(250, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(500, audioCtx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+      } else if (type === 'eat') {
+        osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+      } else if (type === 'hit') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+        osc.frequency.linearRampToValueAtTime(40, audioCtx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+      }
+    }
+
+    // Spiel-Logik
+    let isRunning = false;
+    let score = 0;
+    let gravity = 0.35;
+    let jump = -6.5;
+
+    let snake = {
+      x: 80,
+      y: 200,
+      vy: 0,
+      radius: 12,
+      body: [],
+      length: 5
+    };
+
+    let pipes = [];
+    let pipeWidth = 55;
+    let gapHeight = 160;
+    let pipeSpeed = 2.2;
+    let frame = 0;
+
+    let fruit = null;
+
+    function resetGame() {
+      snake.y = height / 2;
+      snake.vy = 0;
+      snake.length = 5;
+      snake.body = [];
+      for (let i = 0; i < snake.length; i++) {
+        snake.body.push({ x: snake.x - i * 15, y: snake.y });
+      }
+      pipes = [];
+      fruit = null;
+      score = 0;
+      scoreEl.innerText = score;
+      frame = 0;
+    }
+
+    function spawnPipe() {
+      let minH = 60;
+      let maxH = height - gapHeight - minH;
+      let topH = Math.floor(Math.random() * (maxH - minH + 1)) + minH;
+      pipes.push({
+        x: width,
+        top: topH,
+        bottom: height - (topH + gapHeight),
+        passed: false
+      });
+    }
+
+    function spawnFruit(pipe) {
+      fruit = {
+        x: pipe.x + pipeWidth / 2,
+        y: pipe.top + gapHeight / 2,
+        radius: 10,
+        collected: false
+      };
+    }
+
+    function flap() {
+      if (!isRunning) return;
+      snake.vy = jump;
+      playSound('flap');
+    }
+
+    window.addEventListener('pointerdown', (e) => {
+      if (e.target.id !== 'start-btn') flap();
+    });
+
+    startBtn.addEventListener('click', () => {
+      resetGame();
+      isRunning = true;
+      uiEl.style.display = 'none';
+    });
+
+    function gameOver() {
+      playSound('hit');
+      isRunning = false;
+      uiEl.style.display = 'flex';
+      document.querySelector('#overlay h1').innerText = "Game Over!";
+    }
+
+    function update() {
+      if (!isRunning) return;
+      frame++;
+
+      // Schlange bewegen
+      snake.vy += gravity;
+      snake.y += snake.vy;
+
+      // Körper folgt dem Kopf
+      snake.body.unshift({ x: snake.x, y: snake.y });
+      while (snake.body.length > snake.length * 4) {
+        snake.body.pop();
+      }
+
+      // Border Collision
+      if (snake.y - snake.radius < 0 || snake.y + snake.radius > height) {
+        gameOver();
+        return;
+      }
+
+      // Rohre
+      if (frame % 110 === 0) spawnPipe();
+
+      for (let i = pipes.length - 1; i >= 0; i--) {
+        let p = pipes[i];
+        p.x -= pipeSpeed;
+
+        if (!p.passed && p.x < snake.x) {
+          p.passed = true;
+          score++;
+          scoreEl.innerText = score;
+          if (!fruit || fruit.collected) spawnFruit(p);
+        }
+
+        // Kollisionsprüfung für JEDEN Körperteil
+        for (let b = 0; b < snake.body.length; b += 2) {
+          let seg = snake.body[b];
+          if (seg.x + snake.radius > p.x && seg.x - snake.radius < p.x + pipeWidth) {
+            if (seg.y - snake.radius < p.top || seg.y + snake.radius > height - p.bottom) {
+              gameOver();
+              return;
+            }
+          }
+        }
+
+        if (p.x + pipeWidth < 0) pipes.splice(i, 1);
+      }
+
+      // Obst fressen
+      if (fruit && !fruit.collected) {
+        fruit.x -= pipeSpeed;
+        let dx = snake.x - fruit.x;
+        let dy = snake.y - fruit.y;
+        let dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < snake.radius + fruit.radius) {
+          fruit.collected = true;
+          snake.length += 3;
+          score += 2;
+          scoreEl.innerText = score;
+          playSound('eat');
+        }
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, width, height);
+
+      // Obst
+      if (fruit && !fruit.collected) {
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.arc(fruit.x, fruit.y, fruit.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Rohre
+      ctx.fillStyle = '#22c55e';
+      pipes.forEach(p => {
+        ctx.fillRect(p.x, 0, pipeWidth, p.top);
+        ctx.fillRect(p.x, height - p.bottom, pipeWidth, p.bottom);
+      });
+
+      // Schlangen-Körper
+      for (let i = snake.body.length - 1; i >= 0; i -= 2) {
+        let seg = snake.body[i];
+        ctx.fillStyle = i === 0 ? '#86efac' : '#4ade80';
+        ctx.beginPath();
+        ctx.arc(seg.x, seg.y, snake.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (isRunning) requestAnimationFrame(draw);
+    }
+
+    function loop() {
+      update();
+      draw();
+      if (isRunning) requestAnimationFrame(loop);
+    }
+
+    function startLoop() {
+      if (isRunning) requestAnimationFrame(loop);
+    }
+    
+    setInterval(() => {
+      if (isRunning) { update(); draw(); }
+    }, 1000 / 60);
+
+  </script>
+</body>
+</html>
