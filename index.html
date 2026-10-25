@@ -27,7 +27,7 @@
     <div class="ui-layer" id="ui">
       <div id="menu-overlay">
         <h1>Flappy Snake</h1>
-        <p>Tippe zum Hüpfen.<br>Steuere durch die Lücken, friss Obst und lass die Schlange wachsen!</p>
+        <p>Tippe zum Hüpfen.<br>Weiche den Rohren aus, friss Obst und lass die Schlange vertikal wachsen!</p>
         <div class="high-score" id="high-score-text">Highscore: 0</div>
         <button class="btn" id="start-btn">SPIELEN</button>
       </div>
@@ -51,18 +51,7 @@
     window.addEventListener('resize', resize);
     resize();
 
-    // Hintergrundbild laden
-    const bgImage = new Image();
-    bgImage.src = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA='; // Platzhalter, wird sofort durch echtes Bild ersetzt
-    // Wir laden dein Bild direkt als Base64 / URL ein:
-    bgImage.src = document.querySelector('img') ? '' : ''; // Sicherer Fallback
-    // Direktes Laden des bereitgestellten Bildes:
-    const bgImgObj = new Image();
-    bgImgObj.src = "https://images.unsplash.com/photo-1534447677768-be436bb09401?q=80&w=1000&auto=format&fit=crop"; // Dynamischer Himmel als sicherer Fallback falls Base64 zu lang wird
-    // Alternativ nutzen wir das exakte Design aus deiner hochgeladenen Bildquelle:
-    bgImgObj.src = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA="; // (Wird unten über direkten Canvas-Gradienten/Muster oder direkt eingebunden)
-
-    // Da wir das Bild direkt verwenden wollen:
+    // Hintergrundbild (Himmel)
     const skyBg = new Image();
     skyBg.crossOrigin = "anonymous";
     skyBg.src = "https://images.unsplash.com/photo-1513002749550-c59d786b8e6c?auto=format&fit=crop&w=800&q=80";
@@ -100,162 +89,8 @@
 
     // Spielvariablen
     let isRunning = false;
-    let score = 0;
-    let highScore = localStorage.getItem('flappy_snake_highscore') || 0;
-    highScoreText.innerText = `Highscore: ${highScore}`;
-
-    let gravity = 0.32;
-    let jump = -6.2;
-
-    let snake = {
-      x: 90,
-      y: 200,
-      vy: 0,
-      baseRadius: 13,
-      body: [],
-      length: 6
-    };
-
-    let pipes = [];
-    let pipeWidth = 60;
-    let gapHeight = 170;
-    let pipeSpeed = 2.3;
-    let frame = 0;
-    let fruit = null;
-
-    function resetGame() {
-      snake.y = height / 2;
-      snake.vy = 0;
-      snake.length = 6;
-      snake.body = [];
-      for (let i = 0; i < snake.length * 5; i++) {
-        snake.body.push({ x: snake.x - i * 3, y: snake.y });
-      }
-      pipes = [];
-      fruit = null;
-      score = 0;
-      scoreEl.innerText = score;
-      frame = 0;
-    }
-
-    function spawnPipe() {
-      let minH = 70;
-      let maxH = height - gapHeight - minH;
-      let topH = Math.floor(Math.random() * (maxH - minH + 1)) + minH;
-      pipes.push({
-        x: width,
-        top: topH,
-        bottom: height - (topH + gapHeight),
-        passed: false
-      });
-    }
-
-    function spawnFruit(pipe) {
-      fruit = {
-        x: pipe.x + pipeWidth / 2,
-        y: pipe.top + gapHeight / 2,
-        radius: 11,
-        collected: false
-      };
-    }
-
-    function flap() {
-      if (!isRunning) return;
-      snake.vy = jump;
-      playSound('flap');
-    }
-
-    window.addEventListener('pointerdown', (e) => {
-      if (e.target.id !== 'start-btn') flap();
-    });
-
-    startBtn.addEventListener('click', () => {
-      resetGame();
-      isRunning = true;
-      uiEl.style.display = 'none';
-      loop();
-    });
-
-    function gameOver() {
-      playSound('hit');
-      isRunning = false;
-      if (score > highScore) {
-        highScore = score;
-        localStorage.setItem('flappy_snake_highscore', highScore);
-      }
-      highScoreText.innerText = `Highscore: ${highScore}`;
-      document.querySelector('#menu-overlay h1').innerText = "Game Over!";
-      document.querySelector('#menu-overlay p').innerText = `Erreichte Punkte: ${score}`;
-      startBtn.innerText = "ERNEUT SPIELEN";
-      uiEl.style.display = 'flex';
-    }
-
-    function update() {
-      if (!isRunning) return;
-      frame++;
-
-      snake.vy += gravity;
-      snake.y += snake.vy;
-
-      // Körper aktualisieren (Horizontaler Verlauf / Längenwachstum)
-      snake.body.unshift({ x: snake.x, y: snake.y });
-      const targetLength = snake.length * 6;
-      while (snake.body.length > targetLength) {
-        snake.body.pop();
-      }
-
-      // Randkollision
-      if (snake.y - snake.baseRadius < 0 || snake.y + snake.baseRadius > height) {
-        gameOver();
-        return;
-      }
-
-      // Rohre erzeugen
-      if (frame % 115 === 0) spawnPipe();
-
-      for (let i = pipes.length - 1; i >= 0; i--) {
-        let p = pipes[i];
-        p.x -= pipeSpeed;
-
-        if (!p.passed && p.x < snake.x) {
-          p.passed = true;
-          score++;
-          scoreEl.innerText = score;
-          if (!fruit || fruit.collected) spawnFruit(p);
-        }
-
-        // Kollision für den gesamten Körper mit Rohren
-        for (let b = 0; b < snake.body.length; b += 3) {
-          let seg = snake.body[b];
-          let currentRadius = snake.baseRadius * (1 - (b / snake.body.length) * 0.5); // Nach hinten dünner
-          if (seg.x + currentRadius > p.x && seg.x - currentRadius < p.x + pipeWidth) {
-            if (seg.y - currentRadius < p.top || seg.y + currentRadius > height - p.bottom) {
-              gameOver();
-              return;
-            }
-          }
-        }
-
-        if (p.x + pipeWidth < 0) pipes.splice(i, 1);
-      }
-
-      // Obst einsammeln
-      if (fruit && !fruit.collected) {
-        fruit.x -= pipeSpeed;
-        let dx = snake.x - fruit.x;
-        let dy = snake.y - fruit.y;
-        let dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < snake.baseRadius + fruit.radius) {
-          fruit.collected = true;
-          snake.length += 4; // Schlange wächst horizontal
-          score += 2;
-          scoreEl.innerText = score;
-          playSound('eat');
-        }
-      }
-    }
-
-    function draw() {
+    let score
+      on draw() {
       ctx.clearRect(0, 0, width, height);
 
       // Hintergrundbild zeichnen[span_1](start_span)[span_1](end_span)
