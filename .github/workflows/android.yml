@@ -23,7 +23,9 @@ jobs:
           npm install -g @capacitor/cli @capacitor/core
           npm init -y
           npm install @capacitor/core @capacitor/android
-          npx cap init "Flappy Snake" "com.flappysnake.app" --web-dir .
+          mkdir -p www
+          cp index.html www/
+          npx cap init "Flappy Snake" "com.flappysnake.app" --web-dir www
           npx cap add android
           npx cap sync android
 
