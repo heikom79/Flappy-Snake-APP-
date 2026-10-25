@@ -8,13 +8,13 @@
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
     body { background: #0f172a; color: #fff; font-family: sans-serif; overflow: hidden; touch-action: manipulation; }
     #game-container { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
-    canvas { width: 100%; height: 100%; max-width: 480px; max-height: 800px; display: block; }
+    canvas { width: 100%; height: 100%; max-width: 480px; max-height: 800px; display: block; background: #38bdf8; }
     .ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: none; }
-    .btn { pointer-events: auto; background: #22c55e; color: #fff; border: none; padding: 16px 36px; font-size: 1.3rem; font-weight: bold; border-radius: 14px; cursor: pointer; box-shadow: 0 4px 20px rgba(34, 197, 94, 0.5); transition: transform 0.1s; }
+    .btn { pointer-events: auto; background: #22c55e; color: #fff; border: none; padding: 16px 36px; font-size: 1.3rem; font-weight: bold; border-radius: 14px; cursor: pointer; box-shadow: 0 4px 20px rgba(34, 197, 94, 0.5); }
     .btn:active { transform: scale(0.95); }
     .score-board { position: absolute; top: 30px; font-size: 2.2rem; font-weight: bold; text-shadow: 0 3px 6px rgba(0,0,0,0.7); z-index: 10; }
-    #menu-overlay { background: rgba(15, 23, 42, 0.82); backdrop-filter: blur(6px); width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; pointer-events: auto; text-align: center; padding: 20px; }
-    h1 { font-size: 3rem; color: #4ade80; text-shadow: 0 3px 10px rgba(74, 222, 128, 0.4); }
+    #menu-overlay { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(6px); width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; pointer-events: auto; text-align: center; padding: 20px; }
+    h1 { font-size: 2.8rem; color: #4ade80; text-shadow: 0 3px 10px rgba(74, 222, 128, 0.4); }
     p { color: #cbd5e1; font-size: 1rem; line-height: 1.5; }
     .high-score { font-size: 1.1rem; color: #fbbf24; font-weight: bold; }
   </style>
@@ -27,7 +27,7 @@
     <div class="ui-layer" id="ui">
       <div id="menu-overlay">
         <h1>Flappy Snake</h1>
-        <p>Tippe zum Hüpfen.<br>Weiche den Rohren aus, friss Obst und lass die Schlange vertikal wachsen!</p>
+        <p>Tippe auf den Bildschirm zum Hüpfen.<br>Weiche den Rohren aus, friss Obst und lass die Schlange vertikal wachsen!</p>
         <div class="high-score" id="high-score-text">Highscore: 0</div>
         <button class="btn" id="start-btn">SPIELEN</button>
       </div>
@@ -39,7 +39,6 @@
     const ctx = canvas.getContext('2d');
     const scoreEl = document.getElementById('score');
     const uiEl = document.getElementById('ui');
-    const menuOverlay = document.getElementById('menu-overlay');
     const startBtn = document.getElementById('start-btn');
     const highScoreText = document.getElementById('high-score-text');
 
@@ -51,12 +50,12 @@
     window.addEventListener('resize', resize);
     resize();
 
-    // Hintergrundbild (Himmel)
+    // Himmel-Hintergrundbild[span_1](start_span)[span_1](end_span)
     const skyBg = new Image();
     skyBg.crossOrigin = "anonymous";
     skyBg.src = "https://images.unsplash.com/photo-1513002749550-c59d786b8e6c?auto=format&fit=crop&w=800&q=80";
 
-    // Sound-Synthesizer
+    // Audio Synthesizer
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     function playSound(type) {
       if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -87,27 +86,184 @@
       }
     }
 
-    // Spielvariablen
+    // Spiel-Zustand
     let isRunning = false;
-    let score
-      on draw() {
+    let animId = null;
+    let score = 0;
+    let highScore = localStorage.getItem('flappy_snake_highscore') || 0;
+    highScoreText.innerText = `Highscore: ${highScore}`;
+
+    let gravity = 0.32;
+    let jump = -6.2;
+
+    let snake = {
+      x: 90,
+      y: 200,
+      vy: 0,
+      baseRadius: 12,
+      verticalScale: 1.0,
+      body: [],
+      length: 25
+    };
+
+    let pipes = [];
+    let pipeWidth = 60;
+    let gapHeight = 180;
+    let pipeSpeed = 2.3;
+    let frame = 0;
+    let fruit = null;
+
+    function resetGame() {
+      snake.y = height / 2;
+      snake.vy = 0;
+      snake.verticalScale = 1.0;
+      snake.body = [];
+      for (let i = 0; i < snake.length; i++) {
+        snake.body.push({ x: snake.x - i * 4, y: snake.y });
+      }
+      pipes = [];
+      fruit = null;
+      score = 0;
+      scoreEl.innerText = score;
+      frame = 0;
+    }
+
+    function spawnPipe() {
+      let minH = 70;
+      let maxH = height - gapHeight - minH;
+      let topH = Math.floor(Math.random() * (maxH - minH + 1)) + minH;
+      pipes.push({
+        x: width,
+        top: topH,
+        bottom: height - (topH + gapHeight),
+        passed: false
+      });
+    }
+
+    function spawnFruit(pipe) {
+      fruit = {
+        x: pipe.x + pipeWidth / 2,
+        y: pipe.top + gapHeight / 2,
+        radius: 11,
+        collected: false
+      };
+    }
+
+    function flap() {
+      if (!isRunning) return;
+      snake.vy = jump;
+      playSound('flap');
+    }
+
+    window.addEventListener('pointerdown', (e) => {
+      if (e.target.id !== 'start-btn') flap();
+    });
+
+    startBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      resetGame();
+      isRunning = true;
+      uiEl.style.display = 'none';
+      if (animId) cancelAnimationFrame(animId);
+      loop();
+    });
+
+    function gameOver() {
+      playSound('hit');
+      isRunning = false;
+      if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('flappy_snake_highscore', highScore);
+      }
+      highScoreText.innerText = `Highscore: ${highScore}`;
+      document.querySelector('#menu-overlay h1').innerText = "Game Over!";
+      document.querySelector('#menu-overlay p').innerText = `Punkte: ${score}`;
+      startBtn.innerText = "ERNEUT SPIELEN";
+      uiEl.style.display = 'flex';
+    }
+
+    function update() {
+      frame++;
+
+      snake.vy += gravity;
+      snake.y += snake.vy;
+
+      snake.body.unshift({ x: snake.x, y: snake.y });
+      if (snake.body.length > snake.length) {
+        snake.body.pop();
+      }
+
+      // Randkollision (unter Berücksichtigung der vertikalen Höhe)
+      let currentRadiusY = snake.baseRadius * snake.verticalScale;
+      if (snake.y - currentRadiusY < 0 || snake.y + currentRadiusY > height) {
+        gameOver();
+        return;
+      }
+
+      if (frame % 115 === 0) spawnPipe();
+
+      for (let i = pipes.length - 1; i >= 0; i--) {
+        let p = pipes[i];
+        p.x -= pipeSpeed;
+
+        if (!p.passed && p.x < snake.x) {
+          p.passed = true;
+          score++;
+          scoreEl.innerText = score;
+          if (!fruit || fruit.collected) spawnFruit(p);
+        }
+
+        // Kollision für den gesamten Körper
+        for (let b = 0; b < snake.body.length; b += 2) {
+          let seg = snake.body[b];
+          let progress = b / snake.body.length;
+          let rY = snake.baseRadius * snake.verticalScale * (1 - progress * 0.4);
+          let rX = snake.baseRadius * 0.8;
+
+          if (seg.x + rX > p.x && seg.x - rX < p.x + pipeWidth) {
+            if (seg.y - rY < p.top || seg.y + rY > height - p.bottom) {
+              gameOver();
+              return;
+            }
+          }
+        }
+
+        if (p.x + pipeWidth < 0) pipes.splice(i, 1);
+      }
+
+      // Obst fressen -> Schlange wächst vertikal
+      if (fruit && !fruit.collected) {
+        fruit.x -= pipeSpeed;
+        let dx = snake.x - fruit.x;
+        let dy = snake.y - fruit.y;
+        let dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < snake.baseRadius * snake.verticalScale + fruit.radius) {
+          fruit.collected = true;
+          snake.verticalScale += 0.15; // Wächst in der Höhe
+          score += 2;
+          scoreEl.innerText = score;
+          playSound('eat');
+        }
+      }
+    }
+
+    function draw() {
       ctx.clearRect(0, 0, width, height);
 
-      // Hintergrundbild zeichnen[span_1](start_span)[span_1](end_span)
-      if (skyBg.complete) {
+      // Hintergrund[span_2](start_span)[span_2](end_span)
+      if (skyBg.complete && skyBg.naturalWidth !== 0) {
         ctx.drawImage(skyBg, 0, 0, width, height);
       } else {
         ctx.fillStyle = '#38bdf8';
         ctx.fillRect(0, 0, width, height);
       }
 
-      // Obst (kleines rotes Früchtchen)
+      // Obst
       if (fruit && !fruit.collected) {
         ctx.fillStyle = '#ef4444';
         ctx.beginPath();
         ctx.arc(fruit.x, fruit.y, fruit.radius, 0, Math.PI * 2);
         ctx.fill();
-        // Stängel
         ctx.strokeStyle = '#15803d';
         ctx.lineWidth = 3;
         ctx.beginPath();
@@ -116,7 +272,7 @@
         ctx.stroke();
       }
 
-      // Rohre zeichnen
+      // Rohre
       ctx.fillStyle = '#16a34a';
       ctx.strokeStyle = '#15803d';
       ctx.lineWidth = 3;
@@ -127,50 +283,55 @@
         ctx.strokeRect(p.x, height - p.bottom, pipeWidth, p.bottom);
       });
 
-      // Schlangen-Körper (läuft nach hinten dünner zu)
+      // Schlangen-Körper (vertikal wachsend & nach hinten dünner)
       for (let i = snake.body.length - 1; i >= 0; i--) {
         let seg = snake.body[i];
         let progress = i / snake.body.length;
-        let radius = Math.max(4, snake.baseRadius * (1 - progress * 0.55));
-        
+        let radiusY = Math.max(4, snake.baseRadius * snake.verticalScale * (1 - progress * 0.5));
+        let radiusX = Math.max(4, snake.baseRadius * 0.8 * (1 - progress * 0.3));
+
         ctx.fillStyle = i === 0 ? '#4ade80' : `rgb(34, ${197 - Math.floor(progress * 50)}, 94)`;
         ctx.beginPath();
-        ctx.arc(seg.x, seg.y, radius, 0, Math.PI * 2);
+        ctx.ellipse(seg.x, seg.y, radiusX, radiusY, 0, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // Schlangenkopf mit Gesicht & Augen
+      // Schlangenkopf mit Gesicht
       let head = snake.body[0] || { x: snake.x, y: snake.y };
+      let headRY = snake.baseRadius * snake.verticalScale;
+      let headRX = snake.baseRadius * 0.9;
+
       ctx.fillStyle = '#22c55e';
       ctx.beginPath();
-      ctx.arc(head.x, head.y, snake.baseRadius + 1, 0, Math.PI * 2);
+      ctx.ellipse(head.x, head.y, headRX, headRY, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Augen (Weiß + Pupille)
+      // Augen
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.arc(head.x + 4, head.y - 4, 4.5, 0, Math.PI * 2);
+      ctx.arc(head.x + 4, head.y - headRY * 0.4, 4.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#000000';
       ctx.beginPath();
-      ctx.arc(head.x + 6, head.y - 4, 2, 0, Math.PI * 2);
+      ctx.arc(head.x + 6, head.y - headRY * 0.4, 2, 0, Math.PI * 2);
       ctx.fill();
 
-      // Zügige Zunge
+      // Zunge
       if (Math.floor(frame / 15) % 2 === 0) {
         ctx.strokeStyle = '#ef4444';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(head.x + snake.baseRadius, head.y + 2);
-        ctx.lineTo(head.x + snake.baseRadius + 8, head.y + 2);
+        ctx.moveTo(head.x + headRX, head.y);
+        ctx.lineTo(head.x + headRX + 8, head.y);
         ctx.stroke();
       }
     }
 
     function loop() {
+      if (!isRunning) return;
       update();
       draw();
-      if (isRunning) requestAnimationFrame(loop);
+      animId = requestAnimationFrame(loop);
     }
   </script>
 </body>
